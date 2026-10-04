@@ -4,7 +4,6 @@
 package cache
 
 import (
-	"hash/fnv"
 	"sync"
 )
 
@@ -55,14 +54,18 @@ func (b *Bloom) MayContain(id int64) bool {
 	return true
 }
 
+// hashPair 原来用 fnv.New64a() 逐字节写入，8 次循环 + interface 调用才能得到一个
+// 64 位散列，而布隆过滤器本来只需要两组独立分布良好的比特。券 id 是自增 int64，
+// FNV-1a 对连续整数低位区分度很差；这里换成整数混合（splitmix64 的 finalizer），
+// 直接在寄存器里算完，同时把低位的雪崩也带上。
 func hashPair(id int64) (uint64, uint64) {
-	h := fnv.New64a()
-	var buf [8]byte
-	for i := 0; i < 8; i++ {
-		buf[i] = byte(uint64(id) >> (8 * i))
-	}
-	_, _ = h.Write(buf[:])
-	h1 := h.Sum64()
-	h2 := h1>>1 | 1 // 奇数步长，避免退化为 0
+	x := uint64(id)
+	x ^= x >> 33
+	x *= 0xff51afd7ed558ccd
+	x ^= x >> 33
+	x *= 0xc4ceb9fe1a85ec53
+	x ^= x >> 33
+	h1 := x
+	h2 := x>>1 | 1 // 奇数步长，避免退化为 0
 	return h1, h2
 }
